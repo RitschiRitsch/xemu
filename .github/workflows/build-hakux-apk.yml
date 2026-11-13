@@ -36,23 +36,51 @@ jobs:
           sudo apt-get install -y \
             cmake ninja-build \
             clang lld pkg-config \
-            python3 git
+            python3 git curl
 
-      - name: Check hakuX patch
+      - name: Check hakuX AV-pack fix
         shell: bash
         run: |
           echo "Checked-out commit:"
           git rev-parse HEAD
 
-          echo "Checking hakuX AV-pack patch..."
           if grep -Fq \
             'nc_vm_wr32(k->vm, s, av_pack_smc());' \
             android/hakux/core/native/kernel/ex.c; then
-            echo "AV-pack patch found."
+            echo "AV-pack fix found."
           else
-            echo "ERROR: AV-pack patch not found!"
+            echo "ERROR: AV-pack fix missing!"
             exit 1
           fi
+
+      - name: Prepare adrenotools patch
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          TARGET="android/hakux/patches/adrenotools-kgsl-context-priority.patch"
+
+          if [ -s "$TARGET" ]; then
+            echo "Required patch already exists."
+          elif [ -s "android/hakux/core/tools/native/adrenotools-kgsl-context-priority.patch" ]; then
+            mkdir -p "$(dirname "$TARGET")"
+            cp \
+              android/hakux/core/tools/native/adrenotools-kgsl-context-priority.patch \
+              "$TARGET"
+          else
+            echo "Downloading upstream hakuX patch..."
+            mkdir -p "$(dirname "$TARGET")"
+
+            curl --fail --location \
+              --retry 3 \
+              --output "$TARGET" \
+              "https://raw.githubusercontent.com/rfandango/hakuX/master/tools/native/adrenotools-kgsl-context-priority.patch"
+          fi
+
+          test -s "$TARGET"
+
+          echo "Patch ready:"
+          wc -c "$TARGET"
 
       - name: Build Android Debug APK
         shell: bash
