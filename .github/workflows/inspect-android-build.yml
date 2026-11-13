@@ -1,0 +1,64 @@
+
+name: Inspect X1 BOX Android Build
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Inspect build configuration
+        shell: bash
+        run: |
+          mkdir -p build-report
+
+          {
+            echo "=== CHECKOUT ==="
+            git rev-parse HEAD
+            git branch --show-current
+
+            echo "=== ANDROID FILES ==="
+            find android -maxdepth 4 -type f \
+              \( -name 'README.md' \
+              -o -name '*.gradle' \
+              -o -name '*.gradle.kts' \
+              -o -name 'gradlew' \
+              -o -name 'CMakeLists.txt' \) \
+              -print | head -100
+
+            echo "=== NATIVE BUILD FILES ==="
+            find android/hakux tools -maxdepth 5 -type f \
+              \( -name '*.sh' \
+              -o -name 'CMakeLists.txt' \
+              -o -name 'README.md' \) \
+              -print 2>/dev/null | head -150
+
+            echo "=== CORE REFERENCES ==="
+            git grep -n -E \
+              'hakuxcore|nc_kernel_set_video|app-libs.sh|jniLibs|externalNativeBuild|NC_DEPS' \
+              -- android tools 2>/dev/null | head -120 || true
+
+            echo "=== EXISTING WORKFLOWS ==="
+            ls -la .github/workflows 2>/dev/null || true
+
+            echo "=== HAKUX SOURCES ==="
+            test -f android/hakux/core/native/kernel/ex.c \
+              && echo "hakuX kernel source present" \
+              || echo "hakuX kernel source missing"
+
+          } | tee build-report/report.txt
+
+      - name: Upload inspection report
+        uses: actions/upload-artifact@v4
+        with:
+          name: x1box-build-report
+          path: build-report/report.txt
