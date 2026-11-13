@@ -13,10 +13,11 @@ jobs:
     timeout-minutes: 120
 
     steps:
-      - name: Checkout source
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
+    - name: Checkout source
+      uses: actions/checkout@v4
+      with:
+        ref: fix/hakux-hd-video-modes
+        submodules: recursive
 
       - name: Setup Java
         uses: actions/setup-java@v4
@@ -25,7 +26,9 @@ jobs:
           java-version: '21'
 
       - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
+        with:
+          packages: 'platform-tools'
 
       - name: Install Linux build tools
         run: |
