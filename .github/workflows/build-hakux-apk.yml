@@ -13,11 +13,11 @@ jobs:
     timeout-minutes: 120
 
     steps:
-    - name: Checkout source
-      uses: actions/checkout@v4
-      with:
-        ref: fix/hakux-hd-video-modes
-        submodules: recursive
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          ref: fix/hakux-hd-video-modes
+          submodules: recursive
 
       - name: Setup Java
         uses: actions/setup-java@v4
@@ -41,18 +41,18 @@ jobs:
       - name: Check hakuX patch
         shell: bash
         run: |
-          echo "Branch: $GITHUB_REF_NAME"
-          echo "Commit: $GITHUB_SHA"
+          echo "Checked-out commit:"
+          git rev-parse HEAD
 
-          grep -Fq \
+          echo "Checking hakuX AV-pack patch..."
+          if grep -Fq \
             'nc_vm_wr32(k->vm, s, av_pack_smc());' \
-            android/hakux/core/native/kernel/ex.c \
-            || {
-              echo "AV pack patch not found."
-              exit 1
-            }
-
-          echo "AV pack patch found."
+            android/hakux/core/native/kernel/ex.c; then
+            echo "AV-pack patch found."
+          else
+            echo "ERROR: AV-pack patch not found!"
+            exit 1
+          fi
 
       - name: Build Android Debug APK
         shell: bash
