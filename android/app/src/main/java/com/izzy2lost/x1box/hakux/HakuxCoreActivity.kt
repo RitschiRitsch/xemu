@@ -24,6 +24,8 @@ import android.graphics.Color
 import android.graphics.Typeface
 import android.net.Uri
 import android.os.Build
+import android.os.VibrationEffect
+import android.os.Vibrator
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -320,6 +322,7 @@ class HakuxCoreActivity : SDLActivity(), InputManager.InputDeviceListener {
   override fun onPause() {
     handler.removeCallbacks(poll)
     handler.removeCallbacks(rumble)
+    stopRumble()
     router?.reset()
     activityPaused = true
     syncPause()
@@ -327,6 +330,7 @@ class HakuxCoreActivity : SDLActivity(), InputManager.InputDeviceListener {
   }
 
   override fun onDestroy() {
+    stopRumble()
     handler.removeCallbacksAndMessages(null)
     (getSystemService(Context.INPUT_SERVICE) as InputManager).unregisterInputDeviceListener(this)
     super.onDestroy()
@@ -550,29 +554,73 @@ class HakuxCoreActivity : SDLActivity(), InputManager.InputDeviceListener {
   override fun onInputDeviceAdded(deviceId: Int) = updateControllerVisibility()
   override fun onInputDeviceChanged(deviceId: Int) = updateControllerVisibility()
   override fun onInputDeviceRemoved(deviceId: Int) {
+    stopRumbleForDevice(deviceId)
     router?.forget(deviceId)
     updateControllerVisibility()
   }
 
-  /** The rumble the title asks of each player, on that player's controller used last. */
-  private val rumbleOn = BooleanArray(4)
+  /** Android controller vibration, renewed before the one-second effect expires. */
+  private val rumbleLevels = IntArray(4) { -1 }
+  private val rumbleDevices = IntArray(4) { -1 }
+  private val rumbleUpdatedAt = LongArray(4)
+
+  @Suppress("DEPRECATION")
+  private fun controllerVibrator(device: InputDevice): Vibrator =
+    if (Build.VERSION.SDK_INT >= 31) device.vibratorManager.defaultVibrator else device.vibrator
+
+  private fun stopRumbleForDevice(deviceId: Int) {
+    for (p in 0 until 4) {
+      if (rumbleDevices[p] != deviceId) continue
+      InputDevice.getDevice(deviceId)?.let { device ->
+        runCatching { controllerVibrator(device).cancel() }
+      }
+      rumbleDevices[p] = -1
+      rumbleLevels[p] = -1
+      rumbleUpdatedAt[p] = 0L
+    }
+  }
+
+  private fun stopRumble() {
+    rumbleDevices.filter { it >= 0 }.distinct().forEach(::stopRumbleForDevice)
+  }
+
+  /** The title's two motor levels go to the physical controller assigned to each player. */
   private val rumble = object : Runnable {
     override fun run() {
       val r = router
-      if (r != null && Build.VERSION.SDK_INT >= 31) {
+      if (r != null) {
         val mask = r.pluggedMask()
+        val now = SystemClock.uptimeMillis()
         for (p in 0 until 4) {
-          if (mask shr p and 1 == 0) continue
-          val v = nativeGetRumble(p)
-          val amp = (maxOf(v ushr 16, v and 0xFFFF) ushr 8).coerceIn(0, 255)
-          val dev = InputDevice.getDevice(r.rumbleDevice(p)) ?: continue
-          val vib = dev.vibratorManager.defaultVibrator
-          if (amp > 0 && vib.hasVibrator()) {
-            vib.vibrate(android.os.VibrationEffect.createOneShot(RUMBLE_MS + 20, amp.coerceAtLeast(1)))
-            rumbleOn[p] = true
-          } else if (rumbleOn[p]) {
-            vib.cancel()
-            rumbleOn[p] = false
+          val deviceId = if (mask shr p and 1 != 0) r.rumbleDevice(p) else -1
+          if (rumbleDevices[p] != deviceId) {
+            if (rumbleDevices[p] >= 0) stopRumbleForDevice(rumbleDevices[p])
+            rumbleDevices[p] = deviceId
+            rumbleLevels[p] = -1
+          }
+          if (deviceId < 0) continue
+          val device = InputDevice.getDevice(deviceId) ?: continue
+          val value = nativeGetRumble(p)
+          val left = (value ushr 16) and 0xffff
+          val right = value and 0xffff
+          val level = ((maxOf(left, right) * 255L + 32767L) / 65535L).toInt()
+          if (level == rumbleLevels[p] && (level == 0 || now - rumbleUpdatedAt[p] < 900L)) continue
+          val vibrator = runCatching { controllerVibrator(device) }.getOrNull() ?: continue
+          val success = runCatching {
+            if (!vibrator.hasVibrator()) return@runCatching false
+            if (level == 0) {
+              vibrator.cancel()
+            } else {
+              val amplitude = if (vibrator.hasAmplitudeControl()) level
+                else if (level >= 64) VibrationEffect.DEFAULT_AMPLITUDE else 0
+              if (amplitude == 0) vibrator.cancel()
+              else vibrator.vibrate(VibrationEffect.createOneShot(1000L, amplitude))
+            }
+            true
+          }.getOrDefault(false)
+          if (success) {
+            rumbleLevels[p] = level
+            rumbleUpdatedAt[p] = now
           }
         }
       }
