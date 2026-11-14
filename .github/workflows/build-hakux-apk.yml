@@ -16,7 +16,7 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@v4
         with:
-          ref: fix/hakux-hd-video-modes
+          ref: feature/hakux-bluetooth-rumble
           submodules: recursive
 
       - name: Setup Java
