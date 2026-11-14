@@ -16,7 +16,7 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@v4
         with:
-          ref: fix/hakux-device-vibration
+          ref: fix/hakux-halo-memory
           submodules: recursive
 
       - name: Setup Java
