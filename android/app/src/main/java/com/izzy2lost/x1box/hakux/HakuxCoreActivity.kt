@@ -26,6 +26,9 @@ import android.net.Uri
 import android.os.Build
 import android.os.VibrationEffect
 import android.os.Vibrator
+import android.os.VibratorManager
+import android.os.VibrationAttributes
+import android.media.AudioAttributes
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -563,10 +566,41 @@ class HakuxCoreActivity : SDLActivity(), InputManager.InputDeviceListener {
   private val rumbleLevels = IntArray(4) { -1 }
   private val rumbleDevices = IntArray(4) { -1 }
   private val rumbleUpdatedAt = LongArray(4)
+  private var bodyRumbleLevel = -1
+  private var bodyRumbleUpdatedAt = 0L
 
   @Suppress("DEPRECATION")
   private fun controllerVibrator(device: InputDevice): Vibrator =
     if (Build.VERSION.SDK_INT >= 31) device.vibratorManager.defaultVibrator else device.vibrator
+
+  /** Odin/phone's own motor, distinct from a controller's vibrator. */
+  private fun bodyVibrator(): Vibrator? = runCatching {
+    val vibrator = if (Build.VERSION.SDK_INT >= 31) {
+      getSystemService(VibratorManager::class.java)?.defaultVibrator
+    } else {
+      @Suppress("DEPRECATION")
+      getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+    }
+    vibrator?.takeIf { it.hasVibrator() }
+  }.getOrNull()
+
+  private fun applyRumble(vibrator: Vibrator, level: Int) {
+    if (level == 0) {
+      vibrator.cancel()
+    } else {
+      val amplitude = if (vibrator.hasAmplitudeControl()) level
+        else if (level >= 64) VibrationEffect.DEFAULT_AMPLITUDE else 0
+      if (amplitude == 0) vibrator.cancel()
+      else {
+        val effect = VibrationEffect.createOneShot(1000L, amplitude)
+        if (Build.VERSION.SDK_INT >= 33) {
+          vibrator.vibrate(effect, VibrationAttributes.createForUsage(VibrationAttributes.USAGE_MEDIA))
+        } else {
+          vibrator.vibrate(effect, AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_GAME).build())
+        }
+      }
+    }
+  }
 
   private fun stopRumbleForDevice(deviceId: Int) {
     for (p in 0 until 4) {
@@ -582,15 +616,22 @@ class HakuxCoreActivity : SDLActivity(), InputManager.InputDeviceListener {
 
   private fun stopRumble() {
     rumbleDevices.filter { it >= 0 }.distinct().forEach(::stopRumbleForDevice)
+    runCatching { bodyVibrator()?.cancel() }
+    bodyRumbleLevel = -1
+    bodyRumbleUpdatedAt = 0L
   }
 
-  /** The title's two motor levels go to the physical controller assigned to each player. */
+  /**
+   * Send rumble to each physical controller. If player 1 is using built-in
+   * handheld controls or the on-screen pad, use the device's own vibrator.
+   */
   private val rumble = object : Runnable {
     override fun run() {
       val r = router
-      if (r != null) {
+      if (r != null && nativePaused != true) {
         val mask = r.pluggedMask()
         val now = SystemClock.uptimeMillis()
+        var bodyPlayer = -1
         for (p in 0 until 4) {
           val deviceId = if (mask shr p and 1 != 0) r.rumbleDevice(p) else -1
           if (rumbleDevices[p] != deviceId) {
@@ -598,31 +639,46 @@ class HakuxCoreActivity : SDLActivity(), InputManager.InputDeviceListener {
             rumbleDevices[p] = deviceId
             rumbleLevels[p] = -1
           }
-          if (deviceId < 0) continue
-          val device = InputDevice.getDevice(deviceId) ?: continue
+          val device = if (deviceId >= 0) InputDevice.getDevice(deviceId) else null
+          val vibrator = device?.let { runCatching { controllerVibrator(it) }.getOrNull() }
+          val hasControllerMotor = vibrator?.let { runCatching { it.hasVibrator() }.getOrDefault(false) } == true
+          if (!hasControllerMotor) {
+            // Player 1 is always logically plugged in, even with no InputDevice.
+            // Its rumble belongs to the Odin/phone body when there is no motor.
+            if (p == 0 && mask and 1 != 0) bodyPlayer = p
+            continue
+          }
           val value = nativeGetRumble(p)
           val left = (value ushr 16) and 0xffff
           val right = value and 0xffff
           val level = ((maxOf(left, right) * 255L + 32767L) / 65535L).toInt()
           if (level == rumbleLevels[p] && (level == 0 || now - rumbleUpdatedAt[p] < 900L)) continue
-          val vibrator = runCatching { controllerVibrator(device) }.getOrNull() ?: continue
-          val success = runCatching {
-            if (!vibrator.hasVibrator()) return@runCatching false
-            if (level == 0) {
-              vibrator.cancel()
-            } else {
-              val amplitude = if (vibrator.hasAmplitudeControl()) level
-                else if (level >= 64) VibrationEffect.DEFAULT_AMPLITUDE else 0
-              if (amplitude == 0) vibrator.cancel()
-              else vibrator.vibrate(VibrationEffect.createOneShot(1000L, amplitude))
-            }
-            true
-          }.getOrDefault(false)
+          val success = runCatching { applyRumble(vibrator!!, level); true }.getOrDefault(false)
           if (success) {
             rumbleLevels[p] = level
             rumbleUpdatedAt[p] = now
           }
         }
+
+        val bodyLevel = if (bodyPlayer >= 0) {
+          val value = nativeGetRumble(bodyPlayer)
+          val left = (value ushr 16) and 0xffff
+          val right = value and 0xffff
+          ((maxOf(left, right) * 255L + 32767L) / 65535L).toInt()
+        } else 0
+        if (bodyLevel != bodyRumbleLevel ||
+          (bodyLevel != 0 && now - bodyRumbleUpdatedAt >= 900L)) {
+          val success = runCatching {
+            bodyVibrator()?.let { applyRumble(it, bodyLevel) }
+            true
+          }.getOrDefault(false)
+          if (success) {
+            bodyRumbleLevel = bodyLevel
+            bodyRumbleUpdatedAt = now
+          }
+        }
+      } else {
+        stopRumble()
       }
       handler.postDelayed(this, RUMBLE_MS)
     }
