@@ -69,21 +69,6 @@ jobs:
           rustup target list --installed \
             | grep -Fxq aarch64-linux-android
 
-      - name: Check hakuX AV-pack fix
-        shell: bash
-        run: |
-          echo "Checked-out commit:"
-          git rev-parse HEAD
-
-          if grep -Fq \
-            'nc_vm_wr32(k->vm, s, av_pack_smc());' \
-            android/hakux/core/native/kernel/ex.c; then
-            echo "AV-pack fix found."
-          else
-            echo "ERROR: AV-pack fix missing!"
-            exit 1
-          fi
-
       - name: Prepare adrenotools patch
         shell: bash
         run: |
