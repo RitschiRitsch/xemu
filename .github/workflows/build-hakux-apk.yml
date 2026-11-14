@@ -16,7 +16,7 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@v4
         with:
-          ref: feature/hakux-bluetooth-rumble
+          ref: fix/hakux-device-vibration
           submodules: recursive
 
       - name: Setup Java
