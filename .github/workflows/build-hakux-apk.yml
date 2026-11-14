@@ -50,6 +50,25 @@ jobs:
           ninja --version
           cmake --version
 
+      - name: Setup Rust for Android ARM64
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          rustup toolchain install stable
+          rustup default stable
+          rustup target add aarch64-linux-android \
+            --toolchain stable
+
+          echo "Rust version:"
+          rustc --version
+
+          echo "Installed Rust targets:"
+          rustup target list --installed
+
+          rustup target list --installed \
+            | grep -Fxq aarch64-linux-android
+
       - name: Check hakuX AV-pack fix
         shell: bash
         run: |
