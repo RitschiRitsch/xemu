@@ -31,12 +31,24 @@ jobs:
           packages: 'platform-tools'
 
       - name: Install Linux build tools
+        shell: bash
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            cmake ninja-build \
-            clang lld pkg-config \
-            python3 git curl
+            cmake \
+            ninja-build \
+            meson \
+            clang \
+            lld \
+            pkg-config \
+            python3 \
+            python3-pip \
+            git \
+            curl
+
+          meson --version
+          ninja --version
+          cmake --version
 
       - name: Check hakuX AV-pack fix
         shell: bash
@@ -78,7 +90,6 @@ jobs:
           fi
 
           test -s "$TARGET"
-
           echo "Patch ready:"
           wc -c "$TARGET"
 
