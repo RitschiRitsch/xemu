@@ -104,7 +104,7 @@ android {
   ndkVersion = "30.0.15729638"
 
   defaultConfig {
-    applicationId = "com.izzy2lost.x1box"
+    applicationId = "com.izzy2lost.x1box.community"
     /*
      * 29 (Android 10), not lower: below that the NDK toolchain falls back to
      * *emulated* TLS, which put __emutls_get_address in the hot path of every
@@ -113,8 +113,8 @@ android {
     minSdk = 29
     targetSdk = 36
 
-    versionCode = 34
-    versionName = "1.3.3"
+    versionCode = 35
+    versionName = "1.3.3-community.1"
 
     ndk {
       abiFilters += listOf("arm64-v8a")
