@@ -15,7 +15,7 @@ jobs:
       - name: Checkout release source
         uses: actions/checkout@v4
         with:
-          ref: release/community-fixes-v1
+          ref: feature/auto-aspect-ratio
           submodules: recursive
 
       - name: Setup Java
